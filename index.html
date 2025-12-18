@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voice Grid Drawing</title>
+
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #111;
+    color: #fff;
+    text-align: center;
+    padding: 20px;
+    margin: 0;
+  }
+
+  canvas {
+    background: #000;
+    border: 2px solid #555;
+    touch-action: none; 
+  }
+
+  button {
+    font-size: 16px;
+    padding: 14px 20px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin: 10px 6px;
+    transition: background 0.2s ease;
+  }
+
+  #micBtn { 
+    background: #ff4444; 
+    color: white; 
+  }
+
+  /* Visual Cue for Start/Recording (Replaces Bip Sound) */
+  #micBtn:active, .listening {
+    background: #0088ff !important; 
+    color: white;
+    box-shadow: 0 0 15px #0088ff; /* Added glow for stronger feedback */
+  }
+
+  #downloadBtn { 
+    background: #00cc88; 
+    color: black; 
+  }
+
+  .info {
+    margin-bottom: 20px;
+    font-size: 1.1em;
+  }
+
+</style>
+</head>
+
+<body>
+
+<h2>🎤 Voice Grid Drawing</h2>
+<p class="info">Hold the button to speak coordinates (e.g., <b>J10</b>, <b>C2</b>). Release to process the command and draw.</p>
+
+<canvas id="grid" width="400" height="400"></canvas><br>
+
+<button id="micBtn">🎙 Hold to Speak & Draw</button>
+<button id="downloadBtn">⬇ Download Drawing</button>
+
+<script>
+// --- Canvas Setup ---
+const canvas = document.getElementById("grid");
+const ctx = canvas.getContext("2d");
+const cols = 10;
+const rows = 10;
+const cell = canvas.width / cols;
+const micBtn = document.getElementById("micBtn");
+
+let lastPoint = null;
+
+/* Draw initial grid and labels */
+function drawGrid() {
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 1;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  for (let i = 0; i <= cols; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * cell, 0);
+    ctx.lineTo(i * cell, canvas.height);
+    ctx.stroke();
+  }
+
+  for (let i = 0; i <= rows; i++) {
+    ctx.beginPath();
+    ctx.moveTo(0, i * cell);
+    ctx.lineTo(canvas.width, i * cell);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "#888";
+  ctx.font = "12px Arial";
+
+  for (let i = 0; i < cols; i++) {
+    ctx.fillText(String.fromCharCode(65 + i), i * cell + 4, 12); 
+  }
+
+  for (let i = 1; i <= rows; i++) {
+    ctx.fillText(i, 2, i * cell - 2);
+  }
+}
+drawGrid();
+
+// --- Speech Recognition ---
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+if (!SpeechRecognition) {
+    micBtn.innerText = "Speech Recognition Not Supported";
+    micBtn.disabled = true;
+    console.error("Web Speech API not supported.");
+}
+
+const recognition = new SpeechRecognition();
+recognition.continuous = false; // Key change: process only one utterance per press
+recognition.interimResults = false;
+recognition.lang = "en-US";
+recognition.maxAlternatives = 1;
+
+// Called when a voice command is successfully processed
+recognition.onresult = (event) => {
+  // --- Drawing Logic ---
+  const transcript = event.results[0][0].transcript
+      .toUpperCase()
+      .trim();
+
+  console.log("Processing Voice Command:", transcript);
+
+  // Regex to match a letter A-J followed by a number 1-10
+  const match = transcript.match(/([A-J])\s*(10|[1-9])/); 
+
+  if (match) {
+    const colLetter = match[1];
+    const rowNumber = parseInt(match[2]);
+
+    const col = colLetter.charCodeAt(0) - 65; 
+    const row = rowNumber - 1; 
+
+    // Calculate center coordinates of the cell
+    const x = col * cell + cell / 2;
+    const y = row * cell + cell / 2;
+
+    ctx.strokeStyle = "#00ffcc";
+    ctx.lineWidth = 3;
+
+    if (lastPoint) {
+      // Draw a line from the last point to the new point
+      ctx.beginPath();
+      ctx.moveTo(lastPoint.x, lastPoint.y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    } else {
+      // If it's the first point, draw a small circle
+      ctx.fillStyle = "#00ffcc";
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2); 
+      ctx.fill();
+    }
+
+    lastPoint = { x, y };
+    console.log(`Point drawn at: ${colLetter}${rowNumber}`);
+  } else {
+    console.log("Command not recognized.");
+  }
+};
+
+recognition.onerror = (event) => {
+    // If the error is 'no-speech' (user held the button but said nothing), we ignore it.
+    if (event.error !== 'no-speech') {
+        console.error("Speech recognition error:", event.error);
+    }
+};
+
+recognition.onstart = () => {
+    // This is the functional equivalent of the "bip" sound starting the recording
+    micBtn.classList.add('listening');
+    micBtn.innerText = "🔊 SAY COORDINATE...";
+}
+
+recognition.onend = () => {
+    // This is the functional equivalent of the "bip" sound ending the recording
+    micBtn.classList.remove('listening');
+    micBtn.innerText = "🎙 Hold to Speak & Draw";
+}
+
+// --- Button Interaction Logic ---
+
+let isRecognitionActive = false;
+
+function startInteraction() {
+  if (isRecognitionActive) return; // Prevent double start
+
+  try {
+    // Start recognition engine (the "bip" start signal is triggered by onstart)
+    recognition.start();
+    isRecognitionActive = true;
+  } catch (error) {
+    // Ignore error if start() is called when already active (should be caught by the check above)
+    if (error.name !== "InvalidStateError") {
+        console.error("Error starting recognition:", error);
+    }
+  }
+}
+
+function stopInteraction() {
+  if (!isRecognitionActive) return; // Prevent double stop
+
+  // Stop recognition engine (the "bip" end signal is triggered by onend)
+  recognition.stop();
+  isRecognitionActive = false;
+}
+
+
+// --- Event Listeners for Drawing ---
+
+// Mouse events (for laptops/desktops)
+micBtn.addEventListener("mousedown", startInteraction);
+micBtn.addEventListener("mouseup", stopInteraction);
+// Use mouseup and touchstart/touchend only for this specific interaction model
+micBtn.addEventListener("mouseleave", stopInteraction); 
+
+// Touch events (for mobile devices)
+micBtn.addEventListener("touchstart", (e) => {
+  e.preventDefault(); 
+  startInteraction();
+});
+micBtn.addEventListener("touchend", stopInteraction);
+
+
+// --- Download ---
+document.getElementById("downloadBtn").addEventListener("click", () => {
+  const link = document.createElement("a");
+  link.download = "voice-drawing.png";
+  link.href = canvas.toDataURL("image/png"); 
+  link.click();
+});
+</script>
+
+</body>
+</html>
